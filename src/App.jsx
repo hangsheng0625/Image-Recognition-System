@@ -1,11 +1,11 @@
-import Card from './Card.jsx'; 
-function App() {
-  return (
-    <>
-  <Card/>
-  <Card/>
-  </>
-  )
-}
+import Main from "./components/Main"
+import Navbar from "./components/Navbar"
 
-export default App
+export default function App() {
+    return (
+        <>
+            <Navbar />
+            <Main />
+        </>
+    )
+}

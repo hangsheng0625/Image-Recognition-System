@@ -1,28 +1,60 @@
-.card{
-  border: 1px solid hsl(0, 0%, 80%);
-  border-radius: 10px;
-  box-shadow: 5px 5px 5px hsla(0, 0%, 0%, 0.1);
-  padding:20px;
-  margin: 20px;
-  text-align: center;
-  max-width: 250ox;
-  display: inline-block;
+* {
+  box-sizing: border-box;
 }
 
-.card .card-image{
-  max-width: 60%;
-  height: 100px;
-  border-radius: 50%;
-  margin-bottom: 10px;
-}
-
-.card .card-title{
-  font-family: Arial, Helvetica, sans-serif;
+body {
   margin: 0;
-  color: hsl(0, 0%, 20%)
+  font-family: Inter, sans-serif;
+  background-color: #282D35;
+  color: white;
 }
 
-.card .card-text{
-  font-family: Arial, Helvetica, sans-serif;
-  color: hsl(0, 0%, 30%);
+header {
+  height: 90px;
+  background-color: #21222A;
+  padding: 30px 25px;
+}
+
+nav {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.nav-logo {
+  width: 60px;
+  margin-right: 10px;
+  padding: 8px;
+}
+
+nav > span {
+  color: #61DAFB;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+main {
+  padding: 60px 30px;
+  background-image: url(/assets/computer.jpg);
+  background-repeat: no-repeat;
+  background-position: right 70%;
+}
+
+main > h1 {
+  margin: 0;
+  font-size: 2.4rem;
+}
+
+.facts-list {
+  margin-top: 46px;
+  max-width: 400px;
+}
+
+.facts-list > li {
+  padding-block: 10px;
+  line-height: 19px;
+}
+
+.facts-list > li::marker {
+  color: #61DAFB;
 }
