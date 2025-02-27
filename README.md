@@ -1,8 +1,23 @@
 # React + Vite
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Introduction**
 
-Currently, two official plugins are available:
+This project showcases a content-based image recognition system, where images are converted into numerical “embeddings” that capture their visual features. By comparing these embeddings, the system can instantly identify or suggest visually similar images. In daily life, such technology underpins applications like:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+    Retail & E-commerce: Customers can upload a photo of a product (e.g., a tile, a piece of furniture, or clothing) to find the same or similar items in an online catalog.
+    Photo Organization: Automatically grouping images by similar appearances, making it easier to search and manage personal photo collections.
+    Design & Architecture: Quickly locating matching or complementary materials (e.g., tiles, fabrics) by visual similarity, streamlining creative workflows.
+
+**Pretrained Model Using**
+MobileNet
+
+**Tecstack**
+Tensorflow.js
+React
+
+**To run this project locally**
+Run npm run dev or yarn dev
+
+**TO DO**
+1. Enable the user can upload image from the browser, and then save this image's embedding to embedding.json 
+2. Try to implement different options for using different pretrained model
