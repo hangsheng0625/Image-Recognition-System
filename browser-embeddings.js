@@ -1,56 +1,86 @@
-// Use ES module syntax
+// generate-embeddings.js
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Convert __dirname to work in ES modules
+// For Node.js TensorFlow
+import * as tf from '@tensorflow/tfjs-node';
+import * as mobilenet from '@tensorflow-models/mobilenet';
+
+// ESM-friendly __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configuration
 const ASSETS_DIR = path.join(__dirname, 'src', 'assets');
 const OUTPUT_FILE = path.join(__dirname, 'src', 'data', 'embeddings.json');
 
-// Create data directory if it doesn't exist
-const dataDir = path.join(__dirname, 'src', 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+// Utility to load and resize an image
+async function processImage(filePath) {
+  const imageBuffer = fs.readFileSync(filePath);
+  // Decode image to a tensor
+  const decoded = tf.node.decodeImage(imageBuffer, 3); // 3 channels (RGB)
+  // Resize to MobileNet's expected input
+  const resized = tf.image.resizeBilinear(decoded, [224, 224]);
+  // Normalize [0,1]
+  const normalized = resized.div(255);
+  // Expand dims so shape is [1, 224, 224, 3]
+  const batched = normalized.expandDims(0);
+
+  // Clean up intermediate tensors
+  decoded.dispose();
+  resized.dispose();
+  normalized.dispose();
+
+  return batched;
 }
 
-// Main function
-function generateSampleEmbeddings() {
-  console.log('Starting sample embeddings generation...');
-
+async function generateEmbeddings() {
   if (!fs.existsSync(ASSETS_DIR)) {
-    console.error(`Error: Assets directory not found at ${ASSETS_DIR}`);
-    console.log('Creating assets directory. Please add images to this folder.');
-    fs.mkdirSync(ASSETS_DIR, { recursive: true });
+    console.error(`Assets directory not found at ${ASSETS_DIR}`);
     return;
   }
 
+  // Load MobileNet
+  const model = await mobilenet.load({
+    version: 2, 
+    alpha: 1.0
+  });
+
+  // Find images in assets directory
   const imageFiles = fs.readdirSync(ASSETS_DIR)
-    .filter(file => ['.jpg', '.jpeg', '.png', '.gif', '.bmp'].includes(path.extname(file).toLowerCase()));
+    .filter(file => {
+      const ext = path.extname(file).toLowerCase();
+      return ['.jpg', '.jpeg', '.png', '.gif', '.bmp'].includes(ext);
+    });
 
-  if (imageFiles.length === 0) {
-    console.log('No image files found in assets directory.');
-    fs.writeFileSync(OUTPUT_FILE, '[]');
-    console.log(`Created empty embeddings file at ${OUTPUT_FILE}`);
-    return;
+  const embeddings = [];
+
+  for (const file of imageFiles) {
+    console.log(`Processing: ${file}`);
+    const fullPath = path.join(ASSETS_DIR, file);
+
+    const tensor = await processImage(fullPath);
+    // Get embedding from an intermediate layer
+    const activation = model.infer(tensor, true);
+    // Convert to JS array
+    const features = Array.from(await activation.data());
+
+    // Dispose to free memory
+    tensor.dispose();
+    activation.dispose();
+
+    embeddings.push({
+      id: path.basename(file, path.extname(file)),
+      imageUrl: `/assets/${file}`, // Adjust to where your images are actually served
+      features
+    });
   }
-
-  console.log(`Found ${imageFiles.length} image files`);
-
-  const embeddings = imageFiles.map(file => ({
-    id: path.basename(file, path.extname(file)),
-    name: path.basename(file, path.extname(file)).replace(/[-_]/g, ' '),
-    imageUrl: `/src/assets/${file}`,
-    features: Array.from({ length: 1024 }, () => Math.random()) // Fake embeddings
-  }));
 
   fs.writeFileSync(OUTPUT_FILE, JSON.stringify(embeddings, null, 2));
-  console.log(`Saved ${embeddings.length} embeddings to ${OUTPUT_FILE}`);
+  console.log(`Saved embeddings for ${embeddings.length} images to ${OUTPUT_FILE}`);
 }
 
-// Run
-generateSampleEmbeddings();
-console.log('Sample embeddings generation complete!');
+// Run the script
+generateEmbeddings()
+  .then(() => console.log('Done generating embeddings!'))
+  .catch(err => console.error(err));

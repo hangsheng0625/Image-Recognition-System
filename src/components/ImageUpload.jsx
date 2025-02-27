@@ -78,19 +78,31 @@ async function getEmbedding(model, img) {
 }
 
 function findSimilar(inputEmbedding, embeddings, topK = 5) {
-  if (!embeddings || !embeddings.length) {
-    console.error('No embeddings available');
-    return [];
-  }
+    if (!embeddings || !embeddings.length) {
+      console.error('No embeddings available');
+      return [];
+    }
   
-  return embeddings
-    .map(emb => ({
-      ...emb,
-      similarity: cosineSimilarity(inputEmbedding, emb.features)
-    }))
-    .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, topK);
-}
+    // 1) Map over embeddings to compute similarity, log each result
+    const similarityArray = embeddings.map(emb => {
+      const similarity = cosineSimilarity(inputEmbedding, emb.features);
+      console.log('Similarity to', emb.id, ':', similarity);
+      return { ...emb, similarity };
+    });
+  
+    // 2) Optionally filter out very low similarities
+    //    (Uncomment or adjust threshold if desired)
+    // const filteredArray = similarityArray.filter(
+    //   (result) => result.similarity >= 0.2
+    // );
+  
+    // 3) Sort by similarity descending and take topK
+    const results = similarityArray
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, topK);
+  
+    return results;
+  }
 
 function cosineSimilarity(a, b) {
   if (!a || !b || a.length !== b.length) {
