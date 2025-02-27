@@ -1,56 +1,58 @@
-import { useState } from 'react';
-import { Layout, Spin, Alert } from 'antd';
+import React, { useState } from 'react';
 import ImageUpload from './components/ImageUpload';
 import ResultsDisplay from './components/ResultsDisplay';
-import useTensorFlow from './hooks/useTensorFlow';
+import useTensorFlow from './hooks/useTensorflow';
+import { Spin, Alert } from 'antd';
 
-const { Content } = Layout;
-
-export default function App() {
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
+function App() {
   const { model, companyEmbeddings, loading: modelLoading, error } = useTensorFlow();
+  const [results, setResults] = useState([]);
+  const [processing, setProcessing] = useState(false);
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Content style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto' }}>
-        <h1 style={{ textAlign: 'center' }}>Tile Finder</h1>
-        
-        {error && (
-          <Alert
-            message="Error"
-            description={error}
-            type="error"
-            showIcon
-            style={{ marginBottom: '1rem' }}
+    <div className="container" style={{ 
+      maxWidth: '1200px', 
+      margin: '0 auto', 
+      padding: '2rem 1rem' 
+    }}>
+      <h1 style={{ textAlign: 'center', marginBottom: '2rem' }}>Tile Finder</h1>
+      
+      {error && (
+        <Alert
+          message="Error"
+          description={error}
+          type="error"
+          showIcon
+          style={{ marginBottom: '2rem' }}
+        />
+      )}
+      
+      {modelLoading ? (
+        <div style={{ textAlign: 'center', padding: '3rem' }}>
+          <Spin size="large" />
+          <div style={{ marginTop: '1rem' }}>Loading TensorFlow model...</div>
+        </div>
+      ) : (
+        <>
+          <ImageUpload 
+            model={model} 
+            embeddings={companyEmbeddings} 
+            setResults={setResults}
+            setLoading={setProcessing}
           />
-        )}
-        
-        {modelLoading ? (
-          <div style={{ textAlign: 'center', marginTop: '2rem' }}>
-            <Spin size="large" />
-            <p style={{ marginTop: '1rem' }}>Loading TensorFlow model...</p>
-          </div>
-        ) : (
-          <>
-            <ImageUpload
-              model={model}
-              embeddings={companyEmbeddings}
-              setResults={setResults}
-              setLoading={setLoading}
-            />
-            
-            {loading ? (
-              <div style={{ textAlign: 'center', marginTop: '2rem' }}>
-                <Spin size="large" />
-                <p>Processing image...</p>
-              </div>
-            ) : (
-              <ResultsDisplay results={results} />
-            )}
-          </>
-        )}
-      </Content>
-    </Layout>
+          
+          {processing ? (
+            <div style={{ textAlign: 'center', padding: '2rem' }}>
+              <Spin size="large" />
+              <div style={{ marginTop: '1rem' }}>Processing image...</div>
+            </div>
+          ) : (
+            <ResultsDisplay results={results} />
+          )}
+        </>
+      )}
+    </div>
   );
 }
+
+export default App;
