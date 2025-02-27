@@ -67,7 +67,7 @@ async function getEmbedding(model, img) {
     .expandDims(0);
     
   // For MobileNet, use predict instead of infer
-  const activation = model.predict(tensor);
+  const activation = model.infer(tensor);
   const embedding = await activation.data();
   
   // Clean up tensors

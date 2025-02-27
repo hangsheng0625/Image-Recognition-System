@@ -37,10 +37,7 @@ export default function useTensorFlow() {
     
     // Cleanup function
     return () => {
-      if (model) {
-        // Clean up any tensors
-        tf.disposeVariables();
-      }
+      // Nothing to clean up with browser version
     };
   }, []);
 
