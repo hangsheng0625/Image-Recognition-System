@@ -1,57 +1,68 @@
 import React, { useState } from 'react';
+import { Layout, Spin, Typography } from 'antd';
 import ImageUpload from './components/ImageUpload';
 import ResultsDisplay from './components/ResultsDisplay';
-import useTensorFlow from './hooks/useTensorflow';
-import { Spin, Alert } from 'antd';
+import useModelSelector from './hooks/useModelSelector.jsx';
+
+const { Header, Content, Footer } = Layout;
+const { Title } = Typography;
 
 function App() {
-  const { model, companyEmbeddings, loading: modelLoading, error } = useTensorFlow();
   const [results, setResults] = useState([]);
-  const [processing, setProcessing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  
+  // Use our custom hook for model selection and management
+  const {
+    model,
+    selectedModelKey,
+    setSelectedModelKey,
+    isModelLoading,
+    embeddings,
+    isGeneratingEmbeddings,
+    generateEmbeddings,
+    getImageEmbedding,
+    availableModels
+  } = useModelSelector();
 
   return (
-    <div className="container" style={{ 
-      maxWidth: '1200px', 
-      margin: '0 auto', 
-      padding: '2rem 1rem' 
-    }}>
-      <h1 style={{ textAlign: 'center', marginBottom: '2rem' }}>Tile Finder</h1>
+    <Layout style={{ minHeight: '100vh' }}>
+      <Header style={{ background: '#fff', padding: '0 2rem' }}>
+        <Title level={3} style={{ margin: '1rem 0' }}>
+          Tile Recognition System
+        </Title>
+      </Header>
       
-      {error && (
-        <Alert
-          message="Error"
-          description={error}
-          type="error"
-          showIcon
-          style={{ marginBottom: '2rem' }}
-        />
-      )}
-      
-      {modelLoading ? (
-        <div style={{ textAlign: 'center', padding: '3rem' }}>
-          <Spin size="large" />
-          <div style={{ marginTop: '1rem' }}>Loading TensorFlow model...</div>
-        </div>
-      ) : (
-        <>
-          <ImageUpload 
-            model={model} 
-            embeddings={companyEmbeddings} 
+      <Content style={{ padding: '2rem' }}>
+        <div style={{ background: '#fff', padding: '2rem', borderRadius: '4px' }}>
+          <ImageUpload
+            model={model}
+            getImageEmbedding={getImageEmbedding}
+            embeddings={embeddings}
             setResults={setResults}
-            setLoading={setProcessing}
+            setLoading={setLoading}
+            availableModels={availableModels}
+            selectedModelKey={selectedModelKey}
+            setSelectedModelKey={setSelectedModelKey}
+            isModelLoading={isModelLoading}
+            generateEmbeddings={generateEmbeddings}
+            isGeneratingEmbeddings={isGeneratingEmbeddings}
           />
           
-          {processing ? (
-            <div style={{ textAlign: 'center', padding: '2rem' }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', margin: '3rem 0' }}>
               <Spin size="large" />
-              <div style={{ marginTop: '1rem' }}>Processing image...</div>
+              <p style={{ marginTop: '1rem' }}>Processing image...</p>
             </div>
           ) : (
             <ResultsDisplay results={results} />
           )}
-        </>
-      )}
-    </div>
+        </div>
+      </Content>
+      
+      <Footer style={{ textAlign: 'center' }}>
+        Tile Recognition System using TensorFlow.js and Pre-trained Models
+      </Footer>
+    </Layout>
   );
 }
 

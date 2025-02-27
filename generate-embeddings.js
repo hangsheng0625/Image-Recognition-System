@@ -1,135 +1,275 @@
 import fs from 'fs';
 import path from 'path';
-import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
-import { createCanvas, loadImage } from 'canvas';
-import * as tf from '@tensorflow/tfjs-node';
+import * as tf from '@tensorflow/tfjs'; // CPU-only usage with canvas
+import '@tensorflow/tfjs-backend-cpu';
 import * as mobilenet from '@tensorflow-models/mobilenet';
+import * as vgg from '@tensorflow-models/vgg16'; // You'll need to install this
+import * as resnet from '@tensorflow-models/resnet50'; // You'll need to install this
+import { createCanvas, loadImage } from 'canvas'; // npm install canvas
 
-// Polyfill `require()` for CommonJS modules
-const require = createRequire(import.meta.url);
-
-// Get __dirname equivalent in ESM
+// ESM-friendly __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configuration
 const ASSETS_DIR = path.join(__dirname, 'src', 'assets');
-const OUTPUT_FILE = path.join(__dirname, 'src', 'data', 'embeddings.json');
+const OUTPUT_DIR = path.join(__dirname, 'src', 'data');
 
-// Create data directory if it doesn't exist
-const dataDir = path.join(__dirname, 'src', 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+// Model configurations with load and embedding extraction functions
+const MODEL_CONFIGS = {
+  mobilenet: {
+    name: 'MobileNet v2',
+    filename: 'mobilenet_embeddings.json',
+    load: async () => {
+      return await mobilenet.load({
+        version: 2,
+        alpha: 1.0
+      });
+    },
+    getEmbedding: (model, tensor) => {
+      // For MobileNet, use infer with second param true to get the embedding
+      return model.infer(tensor, true);
+    }
+  },
+  vgg16: {
+    name: 'VGG16',
+    filename: 'vgg16_embeddings.json',
+    load: async () => {
+      return await vgg.load();
+    },
+    getEmbedding: (model, tensor) => {
+      // For VGG16, get the penultimate layer
+      return model.predict(tensor);
+    }
+  },
+  resnet50: {
+    name: 'ResNet50',
+    filename: 'resnet50_embeddings.json',
+    load: async () => {
+      return await resnet.load();
+    },
+    getEmbedding: (model, tensor) => {
+      // For ResNet50, get the penultimate layer
+      return model.predict(tensor);
+    }
+  }
+};
+
+// 1. Recursively collect all image file paths
+function getAllImageFiles(dirPath, allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.bmp']) {
+  let results = [];
+  const files = fs.readdirSync(dirPath);
+
+  for (const file of files) {
+    const fullPath = path.join(dirPath, file);
+    const stat = fs.statSync(fullPath);
+
+    if (stat.isDirectory()) {
+      // Recurse into subfolder
+      results = results.concat(getAllImageFiles(fullPath, allowedExts));
+    } else {
+      // Check file extension
+      const ext = path.extname(fullPath).toLowerCase();
+      if (allowedExts.includes(ext)) {
+        results.push(fullPath);
+      }
+    }
+  }
+  return results;
 }
 
-// Function to load an image and convert it to a tensor
-async function processImage(imagePath) {
+// 2. Convert an image file to a Tensor using canvas - with better error handling
+async function processImage(filePath) {
   try {
-    // Load the image
-    const image = await loadImage(imagePath);
+    // Read the file into a buffer first
+    const buffer = fs.readFileSync(filePath);
     
-    // Create a canvas and draw the image
+    // Load image from buffer instead of from file path
+    const image = await loadImage(buffer);
+
+    // Create a 224×224 canvas (common input size for most models)
     const canvas = createCanvas(224, 224);
     const ctx = canvas.getContext('2d');
     ctx.drawImage(image, 0, 0, 224, 224);
-    
-    // Convert to tensor
-    const tensor = tf.browser.fromPixels(canvas)
-      .toFloat()
-      .div(tf.scalar(255))
-      .expandDims(0);
-    
-    return tensor;
+
+    // Convert canvas to tensor, normalize [0,1], expand dims to [1,224,224,3]
+    return {
+      tensor: tf.browser.fromPixels(canvas).div(255).expandDims(0),
+      success: true
+    };
   } catch (error) {
-    console.error(`Error processing image ${imagePath}:`, error);
-    return null;
+    console.error(`Failed to process image: ${filePath}`);
+    console.error(`Error details: ${error.message}`);
+    return {
+      tensor: null,
+      success: false
+    };
   }
 }
 
-// Main function
-async function generateEmbeddings() {
-  console.log('Starting embeddings generation...');
+// Helper function to slugify filenames for safe URLs
+function slugify(text) {
+  return text
+    .toString()
+    .normalize('NFD')                // Split accented characters into base character and accent
+    .replace(/[\u0300-\u036f]/g, '') // Remove accent marks
+    .toLowerCase()
+    .replace(/[^\w\-]+/g, '-')       // Replace non-word chars with dash
+    .replace(/\-\-+/g, '-')          // Replace multiple dashes with single dash
+    .replace(/^-+/, '')              // Trim dashes from start
+    .replace(/-+$/, '');             // Trim dashes from end
+}
+
+// Main function to generate embeddings for a specific model
+async function generateEmbeddings(modelKey = 'mobilenet') {
+  if (!MODEL_CONFIGS[modelKey]) {
+    console.error(`Unknown model: ${modelKey}`);
+    return;
+  }
   
-  // Check if assets directory exists
+  const modelConfig = MODEL_CONFIGS[modelKey];
+  const OUTPUT_FILE = path.join(OUTPUT_DIR, modelConfig.filename);
+  
+  console.log(`Generating embeddings using ${modelConfig.name}...`);
+  
   if (!fs.existsSync(ASSETS_DIR)) {
-    console.error(`Error: Assets directory not found at ${ASSETS_DIR}`);
-    console.log('Creating assets directory. Please add images to this folder.');
-    fs.mkdirSync(ASSETS_DIR, { recursive: true });
+    console.error(`Assets directory not found at ${ASSETS_DIR}`);
     return;
   }
-  
-  // Get all image files from assets directory
-  const imageFiles = fs.readdirSync(ASSETS_DIR)
-    .filter(file => {
-      const ext = path.extname(file).toLowerCase();
-      return ['.jpg', '.jpeg', '.png', '.gif', '.bmp'].includes(ext);
-    });
-  
-  if (imageFiles.length === 0) {
-    console.log('No image files found in assets directory.');
-    // Create empty embeddings file
-    fs.writeFileSync(OUTPUT_FILE, '[]');
-    console.log(`Created empty embeddings file at ${OUTPUT_FILE}`);
-    return;
-  }
-  
-  console.log(`Found ${imageFiles.length} image files`);
-  
-  // Load MobileNet model
-  console.log('Loading MobileNet model...');
-  const model = await mobilenet.load({
-    version: 2,
-    alpha: 1.0
-  });
-  console.log('Model loaded successfully');
-  
-  // Process each image
+
+  // Force CPU backend (optional, but ensures consistency)
+  await tf.setBackend('cpu');
+
+  // 3. Load the selected model
+  console.log(`Loading ${modelConfig.name}...`);
+  const model = await modelConfig.load();
+  console.log(`${modelConfig.name} loaded successfully`);
+
+  // 4. Recursively get all image paths from src/assets
+  const allImagePaths = getAllImageFiles(ASSETS_DIR);
+  console.log(`Found ${allImagePaths.length} images to process`);
+
   const embeddings = [];
-  
-  for (const file of imageFiles) {
-    const imagePath = path.join(ASSETS_DIR, file);
-    console.log(`Processing ${file}...`);
+  let successCount = 0;
+  let failureCount = 0;
+
+  for (const fullPath of allImagePaths) {
+    console.log(`Processing: ${fullPath}`);
+
+    // Create a relative path (so subfolders appear in /assets/ URLs)
+    const relativePath = path.relative(ASSETS_DIR, fullPath).replace(/\\/g, '/');
+
+    // Separate the folder part and the file part
+    const folderPath = path.dirname(relativePath).replace(/\\/g, '/'); 
+    const baseName = path.basename(relativePath, path.extname(relativePath)); 
+    const extension = path.extname(relativePath);
+
+    // Build a "display name" with folder + baseName
+    const displayName = folderPath ? `${folderPath}/${baseName}` : baseName;
+
+    // Create a URL-safe version of the filename for the browser
+    const safeBaseName = slugify(baseName) + extension;
+    const safeRelativePath = folderPath ? `${folderPath}/${safeBaseName}` : safeBaseName;
     
+    // Convert image to tensor
+    const { tensor, success } = await processImage(fullPath);
+
+    if (!success || tensor === null) {
+      console.error(`Skipping ${fullPath} due to processing error`);
+      failureCount++;
+      continue;
+    }
+
+    // Extract embedding using the model-specific function
+    const activation = modelConfig.getEmbedding(model, tensor);
+    const features = Array.from(await activation.data());
+
+    // Clean up
+    tensor.dispose();
+    activation.dispose();
+
+    // 5. Push to array (store subfolder structure in imageUrl)
+    embeddings.push({
+      folder: folderPath,             
+      id: baseName,                   
+      displayName,                    
+      originalPath: relativePath,     
+      imageUrl: `/assets/${relativePath}`, 
+      features,
+      modelUsed: modelKey  // Add the model identifier to each embedding
+    });
+    
+    successCount++;
+  }
+
+  // Ensure the data folder exists
+  if (!fs.existsSync(OUTPUT_DIR)) {
+    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  }
+
+  // Write embeddings to JSON
+  fs.writeFileSync(OUTPUT_FILE, JSON.stringify(embeddings, null, 2));
+  console.log(`Saved embeddings for ${successCount} images to ${OUTPUT_FILE} using ${modelConfig.name}`);
+  if (failureCount > 0) {
+    console.warn(`Failed to process ${failureCount} images`);
+  }
+  
+  // Create a manifest file to track available models and their embedding files
+  updateManifestFile(modelKey);
+}
+
+// Update the manifest file that tracks which models have embeddings
+function updateManifestFile(modelKey) {
+  const manifestPath = path.join(OUTPUT_DIR, 'embeddings_manifest.json');
+  
+  let manifest = {};
+  if (fs.existsSync(manifestPath)) {
     try {
-      // Load and preprocess the image
-      const tensor = await processImage(imagePath);
-      if (!tensor) continue;
-      
-      // Get embeddings (features) from the model
-      const activation = model.infer(tensor, true);
-      const features = Array.from(await activation.data());
-      
-      // Add to embeddings array
-      embeddings.push({
-        id: path.basename(file, path.extname(file)),
-        name: path.basename(file, path.extname(file)).replace(/[-_]/g, ' '),
-        imageUrl: `/src/assets/${file}`,
-        features: features
-      });
-      
-      // Clean up tensors
-      tensor.dispose();
-      activation.dispose();
-      
-      console.log(`Successfully processed ${file}`);
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     } catch (error) {
-      console.error(`Error processing ${file}:`, error);
+      console.error('Error reading manifest file:', error);
     }
   }
   
-  // Save embeddings to JSON file
-  fs.writeFileSync(OUTPUT_FILE, JSON.stringify(embeddings, null, 2));
-  console.log(`Saved ${embeddings.length} embeddings to ${OUTPUT_FILE}`);
+  // Update the manifest with this model's information
+  manifest[modelKey] = {
+    name: MODEL_CONFIGS[modelKey].name,
+    filename: MODEL_CONFIGS[modelKey].filename,
+    lastUpdated: new Date().toISOString()
+  };
+  
+  // Write the updated manifest
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  console.log(`Updated manifest file with ${MODEL_CONFIGS[modelKey].name} information`);
 }
 
-// Run the main function
-generateEmbeddings()
-  .then(() => {
-    console.log('Embeddings generation complete!');
-    process.exit(0);
-  })
-  .catch(error => {
-    console.error('Error generating embeddings:', error);
+// Process command line arguments
+async function main() {
+  // Get model from command line argument or use default
+  const modelArg = process.argv[2];
+  
+  if (modelArg && !MODEL_CONFIGS[modelArg]) {
+    console.error(`Unknown model: ${modelArg}`);
+    console.log(`Available models: ${Object.keys(MODEL_CONFIGS).join(', ')}`);
     process.exit(1);
-  });
+  }
+  
+  const selectedModel = modelArg || 'mobilenet';
+  
+  try {
+    console.log(`Starting embedding generation for model: ${selectedModel}`);
+    await generateEmbeddings(selectedModel);
+    console.log('Embedding generation completed successfully');
+  } catch (error) {
+    console.error('Error during embedding generation:', error);
+    process.exit(1);
+  }
+}
+
+// If this script is run directly (not imported), execute main function
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(console.error);
+} else {
+  // Export functions for use in other modules
+  export { generateEmbeddings, MODEL_CONFIGS };
+}

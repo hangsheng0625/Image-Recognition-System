@@ -1,95 +1,123 @@
-// browser-embeddings.js
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import * as tf from '@tensorflow/tfjs'; // Use the regular tfjs package
-import '@tensorflow/tfjs-backend-cpu'; // Use CPU backend
+import * as tf from '@tensorflow/tfjs';
 import * as mobilenet from '@tensorflow-models/mobilenet';
-import { createCanvas, loadImage } from 'canvas'; // Need to install: npm install canvas
+import * as vgg from '@tensorflow-models/vgg16'; // You'll need to install this
+import * as resnet from '@tensorflow-models/resnet50'; // You'll need to install this
 
-// ESM-friendly __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Model configurations with load and embedding extraction functions
+const MODEL_CONFIGS = {
+  mobilenet: {
+    name: 'MobileNet v2',
+    load: async () => {
+      return await mobilenet.load({
+        version: 2,
+        alpha: 1.0
+      });
+    },
+    getEmbedding: (model, tensor) => {
+      // For MobileNet, use infer with second param true to get the embedding
+      return model.infer(tensor, true);
+    }
+  },
+  vgg16: {
+    name: 'VGG16',
+    load: async () => {
+      return await vgg.load();
+    },
+    getEmbedding: (model, tensor) => {
+      // For VGG16, get the penultimate layer
+      return model.predict(tensor);
+    }
+  },
+  resnet50: {
+    name: 'ResNet50',
+    load: async () => {
+      return await resnet.load();
+    },
+    getEmbedding: (model, tensor) => {
+      // For ResNet50, get the penultimate layer
+      return model.predict(tensor);
+    }
+  }
+};
 
-const ASSETS_DIR = path.join(__dirname, 'src', 'assets');
-const OUTPUT_FILE = path.join(__dirname, 'src', 'data', 'embeddings.json');
-
-// Utility to load and resize an image using canvas
-async function processImage(filePath) {
-  // Load the image using canvas
-  const image = await loadImage(filePath);
+// Load a specific model
+export async function loadModel(modelKey = 'mobilenet') {
+  if (!MODEL_CONFIGS[modelKey]) {
+    throw new Error(`Unknown model: ${modelKey}`);
+  }
   
-  // Create a canvas with MobileNet's expected dimensions
-  const canvas = createCanvas(224, 224);
-  const ctx = canvas.getContext('2d');
-  
-  // Draw and resize the image to the canvas
-  ctx.drawImage(image, 0, 0, 224, 224);
-  
-  // Convert to tensor
-  const tensor = tf.browser.fromPixels(canvas)
-    .div(255) // Normalize [0,1]
-    .expandDims(0); // Add batch dimension
-    
-  return tensor;
+  try {
+    console.log(`Loading ${MODEL_CONFIGS[modelKey].name} model...`);
+    return await MODEL_CONFIGS[modelKey].load();
+  } catch (error) {
+    console.error(`Failed to load ${MODEL_CONFIGS[modelKey].name}:`, error);
+    throw error;
+  }
 }
 
-async function generateEmbeddings() {
-  if (!fs.existsSync(ASSETS_DIR)) {
-    console.error(`Assets directory not found at ${ASSETS_DIR}`);
-    return;
-  }
-
-  // Set up TensorFlow.js to use CPU backend
-  await tf.setBackend('cpu');
+// Get embeddings for an image using a specific model
+export async function getEmbedding(model, img, modelKey = 'mobilenet') {
+  if (!model) throw new Error('Model not provided');
+  if (!MODEL_CONFIGS[modelKey]) throw new Error(`Unknown model: ${modelKey}`);
   
-  // Load MobileNet
-  const model = await mobilenet.load({
-    version: 2,
-    alpha: 1.0
+  const tensor = tf.browser.fromPixels(img)
+    .resizeBilinear([224, 224])
+    .div(255)
+    .expandDims(0);
+    
+  // Use model-specific embedding function
+  const activation = MODEL_CONFIGS[modelKey].getEmbedding(model, tensor);
+  const embedding = await activation.data();
+  
+  // Clean up
+  tensor.dispose();
+  activation.dispose();
+  
+  return Array.from(embedding);
+}
+
+// Compare features using cosine similarity
+export function cosineSimilarity(a, b) {
+  if (!a || !b || a.length !== b.length) {
+    console.error(`Invalid vectors for similarity calculation: a=${a?.length}, b=${b?.length}`);
+    return 0;
+  }
+  
+  const dot = a.reduce((sum, val, i) => sum + val * b[i], 0);
+  const normA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
+  const normB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
+  
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (normA * normB);
+}
+
+// Find similar images based on embedding
+export function findSimilar(inputEmbedding, embeddings, topK = 5) {
+  if (!embeddings || !embeddings.length) {
+    console.error('No embeddings available');
+    return [];
+  }
+  
+  const similarityArray = embeddings.map(emb => {
+    if (!emb.features || !Array.isArray(emb.features)) {
+      console.error('Invalid embedding features for', emb.id);
+      return { ...emb, similarity: 0 };
+    }
+    
+    const similarity = cosineSimilarity(inputEmbedding, emb.features);
+    return { ...emb, similarity };
   });
-
-  // Find images in assets directory
-  const imageFiles = fs.readdirSync(ASSETS_DIR)
-    .filter(file => {
-      const ext = path.extname(file).toLowerCase();
-      return ['.jpg', '.jpeg', '.png', '.gif', '.bmp'].includes(ext);
-    });
-
-  const embeddings = [];
-
-  for (const file of imageFiles) {
-    console.log(`Processing: ${file}`);
-    const fullPath = path.join(ASSETS_DIR, file);
-    
-    const tensor = await processImage(fullPath);
-    // Get embedding from an intermediate layer
-    const activation = model.infer(tensor, true);
-    // Convert to JS array
-    const features = Array.from(await activation.data());
-    
-    // Dispose to free memory
-    tensor.dispose();
-    activation.dispose();
-    
-    embeddings.push({
-      id: path.basename(file, path.extname(file)),
-      imageUrl: `/assets/${file}`, // Adjust to where your images are actually served
-      features
-    });
-  }
-
-  // Ensure the target directory exists
-  const dataDir = path.dirname(OUTPUT_FILE);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-
-  fs.writeFileSync(OUTPUT_FILE, JSON.stringify(embeddings, null, 2));
-  console.log(`Saved embeddings for ${embeddings.length} images to ${OUTPUT_FILE}`);
+  
+  // Sort by similarity descending and take topK
+  return similarityArray
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, topK);
 }
 
-// Run the script
-generateEmbeddings()
-  .then(() => console.log('Done generating embeddings!'))
-  .catch(err => console.error(err));
+// Get list of available models for UI
+export function getAvailableModels() {
+  return Object.entries(MODEL_CONFIGS).map(([key, config]) => ({
+    key,
+    name: config.name
+  }));
+}

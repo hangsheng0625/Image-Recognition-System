@@ -1,9 +1,22 @@
 import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Button, message } from 'antd';
+import { Button, Select, Space, Tooltip, message } from 'antd';
+import { ReloadOutlined, UploadOutlined } from '@ant-design/icons';
 import * as tf from '@tensorflow/tfjs';
 
-export default function ImageUpload({ model, embeddings, setResults, setLoading }) {
+export default function ImageUpload({ 
+  model, 
+  getImageEmbedding, 
+  embeddings, 
+  setResults, 
+  setLoading,
+  availableModels,
+  selectedModelKey,
+  setSelectedModelKey,
+  isModelLoading,
+  generateEmbeddings,
+  isGeneratingEmbeddings
+}) {
   const [uploadedImage, setUploadedImage] = useState(null);
   const [imageName, setImageName] = useState('');
 
@@ -16,6 +29,11 @@ export default function ImageUpload({ model, embeddings, setResults, setLoading 
         return;
       }
       
+      if (embeddings.length === 0) {
+        message.warning('No reference embeddings available. Please click "Generate Memory" first.');
+        return;
+      }
+      
       try {
         setLoading(true);
         
@@ -24,7 +42,7 @@ export default function ImageUpload({ model, embeddings, setResults, setLoading 
         setImageName(file.name);
         
         const img = await loadImage(file);
-        const embedding = await getEmbedding(model, img);
+        const embedding = await getImageEmbedding(img);
         const results = findSimilar(embedding, embeddings);
         setResults(results);
       } catch (error) {
@@ -36,25 +54,109 @@ export default function ImageUpload({ model, embeddings, setResults, setLoading 
     }
   });
   
+  // Handle model change
+  const handleModelChange = (value) => {
+    setResults([]);  // Clear previous results
+    setUploadedImage(null);  // Clear uploaded image
+    setSelectedModelKey(value);
+  };
+  
+  // Handle generate embeddings click
+  const handleGenerateClick = async () => {
+    if (isGeneratingEmbeddings) return;
+    
+    try {
+      setResults([]);  // Clear previous results
+      await generateEmbeddings();
+      message.success(`Memory generated successfully using ${availableModels.find(m => m.key === selectedModelKey).name}`);
+    } catch (error) {
+      console.error('Error generating embeddings:', error);
+      message.error('Failed to generate memory');
+    }
+  };
+  
   return (
     <div>
+      {/* Model selection and memory generation controls */}
+      <div style={{ 
+        marginBottom: '2rem', 
+        padding: '1rem', 
+        background: '#f5f5f5', 
+        borderRadius: '8px' 
+      }}>
+        <h3>Model Selection</h3>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <Select
+              style={{ width: '200px' }}
+              value={selectedModelKey}
+              onChange={handleModelChange}
+              loading={isModelLoading}
+              disabled={isModelLoading || isGeneratingEmbeddings}
+              options={availableModels.map(model => ({
+                value: model.key,
+                label: model.name
+              }))}
+            />
+            <Tooltip title="Generate embeddings for all reference images using the selected model">
+              <Button 
+                type="primary" 
+                onClick={handleGenerateClick} 
+                loading={isGeneratingEmbeddings}
+                disabled={isModelLoading || !model}
+                icon={<ReloadOutlined />}
+              >
+                Generate Memory
+              </Button>
+            </Tooltip>
+          </div>
+          
+          <div style={{ fontSize: '0.9rem', color: '#666' }}>
+            {isModelLoading ? (
+              'Loading model...'
+            ) : model ? (
+              `${availableModels.find(m => m.key === selectedModelKey).name} model loaded`
+            ) : (
+              'No model loaded'
+            )}
+            {embeddings.length > 0 && (
+              `, ${embeddings.length} images in memory`
+            )}
+          </div>
+        </Space>
+      </div>
+      
+      {/* Dropzone for image upload */}
       <div {...getRootProps()} style={{
         border: '2px dashed #1890ff',
         borderRadius: '8px',
         padding: '2rem',
         textAlign: 'center',
         cursor: 'pointer',
-        marginBottom: '2rem'
+        marginBottom: '2rem',
+        backgroundColor: embeddings.length === 0 ? '#f5f5f5' : 'white',
       }}>
         <input {...getInputProps()} />
-        <Button type="primary" size="large">
+        <Button 
+          type="primary" 
+          size="large" 
+          icon={<UploadOutlined />}
+          disabled={!model || embeddings.length === 0}
+        >
           Upload Tile Image
         </Button>
         <p style={{ marginTop: '1rem', color: '#666' }}>
-          Drag & drop or click to select
+          {!model ? (
+            'Please wait for model to load'
+          ) : embeddings.length === 0 ? (
+            'Please generate memory first'
+          ) : (
+            'Drag & drop or click to select'
+          )}
         </p>
       </div>
       
+      {/* Uploaded image preview */}
       {uploadedImage && (
         <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
           <h3>Uploaded Image:</h3>
@@ -76,7 +178,7 @@ export default function ImageUpload({ model, embeddings, setResults, setLoading 
   );
 }
 
-// Keep the existing helper functions
+// Helper functions
 async function loadImage(file) {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -87,23 +189,6 @@ async function loadImage(file) {
     };
     reader.readAsDataURL(file);
   });
-}
-
-async function getEmbedding(model, img) {
-  const tensor = tf.browser.fromPixels(img)
-    .resizeBilinear([224, 224])
-    .div(255)
-    .expandDims(0);
-    
-  // For MobileNet, use infer with second param true to get the embedding
-  const activation = model.infer(tensor, true);
-  const embedding = await activation.data();
-  
-  // Clean up tensors
-  tensor.dispose();
-  activation.dispose();
-  
-  return Array.from(embedding);
 }
 
 function findSimilar(inputEmbedding, embeddings, topK = 5) {
@@ -120,9 +205,6 @@ function findSimilar(inputEmbedding, embeddings, topK = 5) {
     }
     
     const similarity = cosineSimilarity(inputEmbedding, emb.features);
-    
-    // More detailed logging
-    console.log(`Comparing to ${emb.id || 'unknown'}: similarity=${similarity.toFixed(4)}`);
     
     return { ...emb, similarity };
   });
