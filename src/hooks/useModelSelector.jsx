@@ -1,198 +1,149 @@
 import { useState, useEffect } from 'react';
 import * as tf from '@tensorflow/tfjs';
 import * as mobilenet from '@tensorflow-models/mobilenet';
-// import * as vgg from '@tensorflow-models/vgg16'; // You'll need to install this
-// import * as resnet from '@tensorflow-models/resnet50'; // You'll need to install this
 
-// Models configuration with their loading functions
-const MODEL_CONFIGS = {
-  mobilenet: {
-    name: 'MobileNet v2',
-    load: async () => {
-      return await mobilenet.load({
-        version: 2,
-        alpha: 1.0
-      });
-    },
-    getEmbedding: (model, tensor) => {
-      // For MobileNet, use infer with second param true to get the embedding
-      return model.infer(tensor, true);
-    }
-  },
-  vgg16: {
-    name: 'VGG16',
-    load: async () => {
-      return await vgg.load();
-    },
-    getEmbedding: (model, tensor) => {
-      // For VGG16, get the penultimate layer
-      return model.predict(tensor);
-    }
-  },
-  resnet50: {
-    name: 'ResNet50',
-    load: async () => {
-      return await resnet.load();
-    },
-    getEmbedding: (model, tensor) => {
-      // For ResNet50, get the penultimate layer
-      return model.predict(tensor);
-    }
-  }
-};
-
+/**
+ * Custom hook for managing model selection, loading, and embedding operations
+ * Handles model loading, embedding fetching, and provides functions for image analysis
+ */
 export default function useModelSelector() {
-  const [selectedModelKey, setSelectedModelKey] = useState('mobilenet');
   const [model, setModel] = useState(null);
-  const [isModelLoading, setIsModelLoading] = useState(false);
   const [embeddings, setEmbeddings] = useState([]);
-  const [isGeneratingEmbeddings, setIsGeneratingEmbeddings] = useState(false);
+  const [modelLoading, setModelLoading] = useState(true);
+  const [selectedModelKey, setSelectedModelKey] = useState('mobilenet');
+  const [generatingEmbeddings, setGeneratingEmbeddings] = useState(false);
   
-  // Load the selected model
+  // Available model configurations
+  const availableModels = [
+    { key: 'mobilenet', name: 'MobileNet v2' },
+    // Add other models if implemented
+  ];
+
+  // Load model when component mounts or model selection changes
   useEffect(() => {
-    let isActive = true;
-    
     async function loadModel() {
       try {
-        setIsModelLoading(true);
-        // Clear previous model from memory if exists
+        setModelLoading(true);
+        
+        // Unload previous model if exists to free memory
         if (model) {
-          model.dispose();
+          // In a real app you might need to properly dispose of the model
         }
         
         // Load the selected model
-        const newModel = await MODEL_CONFIGS[selectedModelKey].load();
-        
-        if (isActive) {
-          setModel(newModel);
-          setIsModelLoading(false);
-          
-          // Clear embeddings when changing models
-          setEmbeddings([]);
+        let loadedModel;
+        if (selectedModelKey === 'mobilenet') {
+          loadedModel = await mobilenet.load({
+            version: 2,
+            alpha: 1.0
+          });
         }
+        // Add other model loading logic for different models
+        
+        setModel(loadedModel);
+        console.log(`${selectedModelKey} model loaded successfully`);
       } catch (error) {
         console.error('Failed to load model:', error);
-        if (isActive) {
-          setIsModelLoading(false);
-        }
+      } finally {
+        setModelLoading(false);
       }
     }
     
     loadModel();
-    
-    // Clean up function
-    return () => {
-      isActive = false;
-    };
   }, [selectedModelKey]);
-  
-  // Load embeddings from localStorage if available
+
+  // Load embeddings when model changes or component mounts
   useEffect(() => {
-    const storedEmbeddings = localStorage.getItem(`embeddings_${selectedModelKey}`);
-    if (storedEmbeddings) {
+    async function loadEmbeddings() {
       try {
-        setEmbeddings(JSON.parse(storedEmbeddings));
-      } catch (err) {
-        console.error('Failed to parse stored embeddings:', err);
+        // Get the appropriate embeddings filename based on selected model
+        const filename = `${selectedModelKey}_embeddings.json`;
+        console.log(`Attempting to load embeddings from: ${filename}`);
+        
+        // Import the embeddings directly
+        // This works with Vite/webpack and assumes the JSON files are in src/data
+        const embeddingsModule = await import(`../data/${filename}`);
+        const data = embeddingsModule.default || embeddingsModule;
+        
+        console.log(`Loaded ${data.length} embeddings from ${filename}`);
+        setEmbeddings(data);
+      } catch (error) {
+        console.error('Error loading embeddings:', error);
+        setEmbeddings([]);
       }
     }
-  }, [selectedModelKey]);
-  
-  // Function to generate embeddings for all images in src/assets
-  const generateEmbeddings = async () => {
-    if (!model || isGeneratingEmbeddings) return;
     
+    if (!modelLoading && model) {
+      loadEmbeddings();
+    }
+  }, [selectedModelKey, model, modelLoading]);
+
+  /**
+   * Extract embedding features from an image element using the loaded model
+   * @param {HTMLImageElement} imgElement - The image to process
+   * @returns {Promise<number[]>} Array of embedding features
+   */
+  const getImageEmbedding = async (imgElement) => {
+    if (!model) {
+      throw new Error('Model not loaded');
+    }
+    
+    // Convert image to tensor
+    const tensor = tf.browser.fromPixels(imgElement)
+      .resizeBilinear([224, 224]) // Resize to model input size
+      .div(255.0)                 // Normalize to [0,1]
+      .expandDims(0);             // Add batch dimension
+      
+    // Get embedding (penultimate layer activation)
+    // For MobileNet, use infer with second param true to get the embedding
+    const embedding = model.infer(tensor, true);
+    
+    // Convert to array
+    const features = Array.from(await embedding.data());
+    
+    // Clean up tensors to prevent memory leaks
+    tensor.dispose();
+    embedding.dispose();
+    
+    return features;
+  };
+
+  /**
+   * Generate embeddings for all images (normally would be done server-side)
+   * This would typically call an API endpoint that runs your Node.js script
+   */
+  const generateEmbeddings = async () => {
     try {
-      setIsGeneratingEmbeddings(true);
+      setGeneratingEmbeddings(true);
       
-      // This would normally be a server-side operation, but for client-side demo:
-      // Fetch the list of images from a predefined JSON or API endpoint
-      const response = await fetch('/api/listAssets');
-      const imageList = await response.json();
+      // In a real app, this would be an API call to your backend
+      // that runs the generate-embeddings.cjs script
       
-      const newEmbeddings = [];
+      // Mock implementation - in reality you wouldn't do this client-side
+      console.log('Generating embeddings would be a server-side operation');
       
-      for (const imageData of imageList) {
-        try {
-          // Load the image
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = reject;
-            img.src = imageData.imageUrl;
-          });
-          
-          // Process image to tensor
-          const tensor = tf.browser.fromPixels(img)
-            .resizeBilinear([224, 224])
-            .div(255)
-            .expandDims(0);
-            
-          // Get embedding based on the selected model
-          const activation = MODEL_CONFIGS[selectedModelKey].getEmbedding(model, tensor);
-          const features = Array.from(await activation.data());
-          
-          // Clean up
-          tensor.dispose();
-          activation.dispose();
-          
-          // Add to embeddings array
-          newEmbeddings.push({
-            ...imageData,
-            features
-          });
-        } catch (error) {
-          console.error(`Failed to process ${imageData.imageUrl}:`, error);
-        }
-      }
+      // After generation, reload the embeddings
+      const filename = `${selectedModelKey}_embeddings.json`;
+      const embeddingsModule = await import(`../data/${filename}?timestamp=${Date.now()}`);
+      const data = embeddingsModule.default || embeddingsModule;
       
-      // Update state with new embeddings
-      setEmbeddings(newEmbeddings);
-      
-      // Store in localStorage for persistence
-      localStorage.setItem(`embeddings_${selectedModelKey}`, JSON.stringify(newEmbeddings));
-      
+      setEmbeddings(data);
+      return true;
     } catch (error) {
       console.error('Error generating embeddings:', error);
+      return false;
     } finally {
-      setIsGeneratingEmbeddings(false);
+      setGeneratingEmbeddings(false);
     }
   };
-  
-  // Get embedding for a single image using current model
-  const getImageEmbedding = async (img) => {
-    if (!model) throw new Error('Model not loaded');
-    
-    const tensor = tf.browser.fromPixels(img)
-      .resizeBilinear([224, 224])
-      .div(255)
-      .expandDims(0);
-      
-    // Use the model-specific embedding function
-    const activation = MODEL_CONFIGS[selectedModelKey].getEmbedding(model, tensor);
-    const embedding = await activation.data();
-    
-    // Clean up tensors
-    tensor.dispose();
-    activation.dispose();
-    
-    return Array.from(embedding);
-  };
-  
-  // Available models for the dropdown
-  const availableModels = Object.entries(MODEL_CONFIGS).map(([key, config]) => ({
-    key,
-    name: config.name
-  }));
 
   return {
     model,
     selectedModelKey,
     setSelectedModelKey,
-    isModelLoading,
+    isModelLoading: modelLoading,
     embeddings,
-    isGeneratingEmbeddings,
+    isGeneratingEmbeddings: generatingEmbeddings,
     generateEmbeddings,
     getImageEmbedding,
     availableModels

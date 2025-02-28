@@ -1,0 +1,7 @@
+{
+  "mobilenet": {
+    "name": "MobileNet v2",
+    "filename": "mobilenet_embeddings.json",
+    "lastUpdated": "2025-02-28T04:12:21.954Z"
+  }
+}
