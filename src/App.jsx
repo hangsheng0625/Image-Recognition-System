@@ -28,7 +28,7 @@ function App() {
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ background: '#fff', padding: '0 2rem' }}>
         <Title level={3} style={{ margin: '1rem 0' }}>
-          Tile Recognition System
+          Image Recognition System
         </Title>
       </Header>
       

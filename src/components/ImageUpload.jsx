@@ -98,7 +98,7 @@ export default function ImageUpload({
                 label: model.name
               }))}
             />
-            <Tooltip title="Generate embeddings for all reference images using the selected model">
+            {/* <Tooltip title="Generate embeddings for all reference images using the selected model">
               <Button 
                 type="primary" 
                 onClick={handleGenerateClick} 
@@ -108,7 +108,7 @@ export default function ImageUpload({
               >
                 Generate Memory
               </Button>
-            </Tooltip>
+            </Tooltip> */}
           </div>
           
           <div style={{ fontSize: '0.9rem', color: '#666' }}>
