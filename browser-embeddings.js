@@ -1,7 +1,7 @@
 import * as tf from '@tensorflow/tfjs';
 import * as mobilenet from '@tensorflow-models/mobilenet';
-import * as vgg from '@tensorflow-models/vgg16'; // You'll need to install this
-import * as resnet from '@tensorflow-models/resnet50'; // You'll need to install this
+// import * as vgg from '@tensorflow-models/vgg16'; // You'll need to install this
+// import * as resnet from '@tensorflow-models/resnet50'; // You'll need to install this
 
 // Model configurations with load and embedding extraction functions
 const MODEL_CONFIGS = {
