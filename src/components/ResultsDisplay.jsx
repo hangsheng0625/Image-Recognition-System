@@ -10,7 +10,7 @@ export default function ResultsDisplay({ results }) {
             display: 'flex',
             flexDirection: 'column',
             gap: '1.6rem',
-            marginTop: '1rem'
+            marginTop: '1.1rem'
           }}
         >
           {results.map((result, index) => {
