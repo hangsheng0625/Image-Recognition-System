@@ -9,7 +9,7 @@ export default function ResultsDisplay({ results }) {
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '1.5rem',
+            gap: '1.6rem',
             marginTop: '1rem'
           }}
         >
