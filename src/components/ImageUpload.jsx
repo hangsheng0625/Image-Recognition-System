@@ -19,7 +19,6 @@ export default function ImageUpload({
 }) {
   const [uploadedImage, setUploadedImage] = useState(null);
   const [imageName, setImageName] = useState('');
-
   const { getRootProps, getInputProps } = useDropzone({
     accept: {'image/*': []},
     multiple: false,
